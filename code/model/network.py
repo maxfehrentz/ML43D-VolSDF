@@ -6,6 +6,7 @@ from model.embedder import *
 from model.density import LaplaceDensity
 from model.ray_sampler import ErrorBoundSampler
 
+# TODO: this seems to be the only relevant file for modification 2: contains f and radiance field
 class ImplicitNetwork(nn.Module):
     def __init__(
             self,
@@ -25,18 +26,29 @@ class ImplicitNetwork(nn.Module):
 
         self.sdf_bounding_sphere = sdf_bounding_sphere
         self.sphere_scale = sphere_scale
-        dims = [d_in] + dims + [d_out + feature_vector_size]
 
+        # single latent as feature vector, implicit network now headless decoder
+        # TODO: experiment with different initialization
+        self.z = nn.Parameter(torch.randn(1, feature_vector_size))
+
+        # create list of layer sizes
+        dims = [d_in] + dims + [d_out]
+
+        # create embedder and adapt input layer size
         self.embed_fn = None
         if multires > 0:
             embed_fn, input_ch = get_embedder(multires, input_dims=d_in)
             self.embed_fn = embed_fn
-            dims[0] = input_ch
+            # replacing original input size d_in by the encoded one input_ch
+            dims[0] = input_ch + feature_vector_size
 
         self.num_layers = len(dims)
         self.skip_in = skip_in
 
         for l in range(0, self.num_layers - 1):
+            # consider skip connections
+            # TODO: currently, removed skip connections, otherwise we would need to change the architecture because the
+            #  the layers are too small -> removing skip is the less-severe modification
             if l + 1 in self.skip_in:
                 out_dim = dims[l + 1] - dims[0]
             else:
@@ -44,6 +56,7 @@ class ImplicitNetwork(nn.Module):
 
             lin = nn.Linear(dims[l], out_dim)
 
+            # parameter initialization technique
             if geometric_init:
                 if l == self.num_layers - 2:
                     torch.nn.init.normal_(lin.weight, mean=np.sqrt(np.pi) / np.sqrt(dims[l]), std=0.0001)
@@ -71,12 +84,16 @@ class ImplicitNetwork(nn.Module):
         if self.embed_fn is not None:
             input = self.embed_fn(input)
 
-        x = input
+        # add latent code to input
+        # TODO: experiment with different normalization
+        z_repeated = self.z.repeat(input.shape[0], 1)
+        x = torch.cat([input, z_repeated], 1) / np.sqrt(2)
 
         for l in range(0, self.num_layers - 1):
             lin = getattr(self, "lin" + str(l))
 
             if l in self.skip_in:
+                # keep magnitude consistent
                 x = torch.cat([x, input], 1) / np.sqrt(2)
 
             x = lin(x)
@@ -86,6 +103,8 @@ class ImplicitNetwork(nn.Module):
 
         return x
 
+    # gradient computation wrt sdf, not feature vector! also duplicated in get_outputs, used for model_bg
+    # TODO: this might be problematic, not sure where x is coming from, might have to concat z; should fail if not
     def gradient(self, x):
         x.requires_grad_(True)
         y = self.forward(x)[:,:1]
@@ -99,16 +118,22 @@ class ImplicitNetwork(nn.Module):
             only_inputs=True)[0]
         return gradients
 
+    # TODO: same question about x as in gradient above
     def get_outputs(self, x):
         x.requires_grad_(True)
         output = self.forward(x)
+
+        # note that there is only one column for the sdf, but indexing with 0 reduces the tensor by one dimension
+        #  which leads to issues, therefore :1 is used
         sdf = output[:,:1]
+
         ''' Clamping the SDF with the scene bounding sphere, so that all rays are eventually occluded '''
         if self.sdf_bounding_sphere > 0.0:
             sphere_sdf = self.sphere_scale * (self.sdf_bounding_sphere - x.norm(2,1, keepdim=True))
             sdf = torch.minimum(sdf, sphere_sdf)
-        feature_vectors = output[:, 1:]
+
         d_output = torch.ones_like(sdf, requires_grad=False, device=sdf.device)
+        # TODO: do I need to put z somewhere in there? or is it already because it is concatanted with x in forward?
         gradients = torch.autograd.grad(
             outputs=sdf,
             inputs=x,
@@ -117,8 +142,10 @@ class ImplicitNetwork(nn.Module):
             retain_graph=True,
             only_inputs=True)[0]
 
-        return sdf, feature_vectors, gradients
+        return sdf, self.z.repeat(sdf.shape[0], 1), gradients
 
+    # code duplication from above, used by ray_sampler
+    # TODO: same issue
     def get_sdf_vals(self, x):
         sdf = self.forward(x)[:,:1]
         ''' Clamping the SDF with the scene bounding sphere, so that all rays are eventually occluded '''
@@ -144,10 +171,12 @@ class RenderingNetwork(nn.Module):
         self.mode = mode
         dims = [d_in + feature_vector_size] + dims + [d_out]
 
+        # create embedder to encode view dirs
         self.embedview_fn = None
         if multires_view > 0:
             embedview_fn, input_ch = get_embedder(multires_view)
             self.embedview_fn = embedview_fn
+            # -3 because view dirs -- and therefore represented in dim[0] -- contributed already 3, don't count twice
             dims[0] += (input_ch - 3)
 
         self.num_layers = len(dims)
@@ -168,6 +197,7 @@ class RenderingNetwork(nn.Module):
         if self.embedview_fn is not None:
             view_dirs = self.embedview_fn(view_dirs)
 
+        # usually IDR for VolSDF
         if self.mode == 'idr':
             rendering_input = torch.cat([points, view_dirs, normals, feature_vectors], dim=-1)
         elif self.mode == 'nerf':
@@ -203,6 +233,7 @@ class VolSDFNetwork(nn.Module):
     def forward(self, input):
         # Parse model input
         intrinsics = input["intrinsics"]
+        # pixel coords, needed to determine how to cast the rays given pose and intrinsics
         uv = input["uv"]
         pose = input["pose"]
 

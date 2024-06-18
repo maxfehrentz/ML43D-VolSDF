@@ -14,7 +14,7 @@ For modeling more complex backgrounds, we follow the inverted sphere parametriza
 https://github.com/Kai-46/nerfplusplus 
 """
 
-
+# Only needed for BlendedMVS -> not relevant for us for now!
 class VolSDFNetworkBG(nn.Module):
     def __init__(self, conf):
         super().__init__()

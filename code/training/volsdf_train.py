@@ -165,7 +165,7 @@ class VolSDFTrainRunner():
             if epoch % self.checkpoint_freq == 0:
                 self.save_checkpoints(epoch)
 
-            if self.do_vis and epoch % self.plot_freq == 0:
+            if self.do_vis and epoch % self.plot_freq == 0 and epoch > 0:
                 self.model.eval()
 
                 self.train_dataset.change_sampling_idx(-1)
@@ -216,12 +216,14 @@ class VolSDFTrainRunner():
 
                 psnr = rend_util.get_psnr(model_outputs['rgb_values'],
                                           ground_truth['rgb'].cuda().reshape(-1,3))
-                print(
-                    '{0}_{1} [{2}] ({3}/{4}): loss = {5}, rgb_loss = {6}, eikonal_loss = {7}, psnr = {8}'
-                        .format(self.expname, self.timestamp, epoch, data_index, self.n_batches, loss.item(),
-                                loss_output['rgb_loss'].item(),
-                                loss_output['eikonal_loss'].item(),
-                                psnr.item()))
+
+                if data_index == 0:
+                    print(
+                        '{0}_{1} [{2}] ({3}/{4}): loss = {5}, rgb_loss = {6}, eikonal_loss = {7}, psnr = {8}'
+                            .format(self.expname, self.timestamp, epoch, data_index, self.n_batches, loss.item(),
+                                    loss_output['rgb_loss'].item(),
+                                    loss_output['eikonal_loss'].item(),
+                                    psnr.item()))
 
                 self.train_dataset.change_sampling_idx(self.num_pixels)
                 self.scheduler.step()
