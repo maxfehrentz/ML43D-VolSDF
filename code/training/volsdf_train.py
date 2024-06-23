@@ -9,6 +9,8 @@ import utils.general as utils
 import utils.plots as plt
 from utils import rend_util
 
+from torch.utils.tensorboard import SummaryWriter
+
 class VolSDFTrainRunner():
     def __init__(self,**kwargs):
         torch.set_default_dtype(torch.float32)
@@ -135,6 +137,9 @@ class VolSDFTrainRunner():
         self.split_n_pixels = self.conf.get_int('train.split_n_pixels', default=10000)
         self.plot_conf = self.conf.get_config('plot')
 
+        # add tensorboard writer
+        self.writer = SummaryWriter(os.path.join(self.expdir, self.timestamp, 'tensorboard'))
+
     def save_checkpoints(self, epoch):
         torch.save(
             {"epoch": epoch, "model_state_dict": self.model.state_dict()},
@@ -156,6 +161,11 @@ class VolSDFTrainRunner():
         torch.save(
             {"epoch": epoch, "scheduler_state_dict": self.scheduler.state_dict()},
             os.path.join(self.checkpoints_path, self.scheduler_params_subdir, "latest.pth"))
+        
+    def log_gradients(self, epoch, data_index):
+        for name, param in self.model.named_parameters():
+            if param.grad is not None:
+                self.writer.add_histogram(f'gradients/{name}', param.grad, epoch * self.n_batches + data_index)
 
     def run(self):
         print("training...")
@@ -212,6 +222,10 @@ class VolSDFTrainRunner():
 
                 self.optimizer.zero_grad()
                 loss.backward()
+
+                # log gradients before optimizer step
+                self.log_gradients(epoch, data_index)
+
                 self.optimizer.step()
 
                 psnr = rend_util.get_psnr(model_outputs['rgb_values'],
@@ -227,7 +241,9 @@ class VolSDFTrainRunner():
 
                 self.train_dataset.change_sampling_idx(self.num_pixels)
                 self.scheduler.step()
-
+    
+        # close the SummaryWriter when training is done        
+        self.writer.close()
         self.save_checkpoints(epoch)
 
     def get_plot_data(self, model_outputs, pose, rgb_gt):
