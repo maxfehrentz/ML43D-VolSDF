@@ -29,7 +29,10 @@ class ImplicitNetwork(nn.Module):
 
         # single latent as feature vector, implicit network now headless decoder
         # TODO: experiment with different initialization
-        self.z = nn.Parameter(torch.randn(1, feature_vector_size))
+        # self.z = nn.Parameter(torch.randn(1, feature_vector_size))
+
+        # from deepsdf
+        self.z = nn.Parameter(torch.randn(1, feature_vector_size) * 0.01)
 
         # create list of layer sizes
         dims = [d_in] + dims + [d_out]
