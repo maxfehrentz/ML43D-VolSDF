@@ -5,6 +5,8 @@ import numpy as np
 import utils.general as utils
 from utils import rend_util
 
+import cv2
+
 class SceneDataset(torch.utils.data.Dataset):
 
     def __init__(self,
@@ -43,6 +45,13 @@ class SceneDataset(torch.utils.data.Dataset):
         self.rgb_images = []
         for path in image_paths:
             rgb = rend_util.load_rgb(path)
+
+            # print(f"shape of rgb: {rgb.shape}") # (C, H, W)
+            rgb = rgb.transpose(1, 2, 0) # [H, W, C]
+            rgb = cv2.resize(rgb, (self.img_res[1], self.img_res[0]), interpolation=cv2.INTER_LINEAR) # size is received as (W, H)
+            rgb = rgb.transpose(2, 0, 1) # [C, H, W] as expected by the model
+            # print(f"shape of rgb after resize: {rgb.shape}")
+
             rgb = rgb.reshape(3, -1).transpose(1, 0)
             self.rgb_images.append(torch.from_numpy(rgb).float())
 
@@ -60,12 +69,14 @@ class SceneDataset(torch.utils.data.Dataset):
             "pose": self.pose_all[idx]
         }
 
+        rgb = self.rgb_images[idx]
+
         ground_truth = {
-            "rgb": self.rgb_images[idx]
+            "rgb": rgb
         }
 
         if self.sampling_idx is not None:
-            ground_truth["rgb"] = self.rgb_images[idx][self.sampling_idx, :]
+            ground_truth["rgb"] = rgb[self.sampling_idx, :]
             sample["uv"] = uv[self.sampling_idx, :]
 
         return idx, sample, ground_truth

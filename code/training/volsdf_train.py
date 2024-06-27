@@ -138,7 +138,7 @@ class VolSDFTrainRunner():
         self.plot_conf = self.conf.get_config('plot')
 
         # add tensorboard writer
-        self.writer = SummaryWriter(os.path.join(self.expdir, self.timestamp, 'tensorboard'))
+        self.writer = SummaryWriter(os.path.join(self.expdir, self.timestamp, 'logs'))
 
     def save_checkpoints(self, epoch):
         torch.save(
@@ -210,15 +210,19 @@ class VolSDFTrainRunner():
 
             self.train_dataset.change_sampling_idx(self.num_pixels)
 
+            running_loss = 0
             for data_index, (indices, model_input, ground_truth) in enumerate(self.train_dataloader):
                 model_input["intrinsics"] = model_input["intrinsics"].cuda()
                 model_input["uv"] = model_input["uv"].cuda()
                 model_input['pose'] = model_input['pose'].cuda()
 
                 model_outputs = self.model(model_input)
+
                 loss_output = self.loss(model_outputs, ground_truth)
 
                 loss = loss_output['loss']
+                
+                running_loss += loss
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -241,6 +245,9 @@ class VolSDFTrainRunner():
 
                 self.train_dataset.change_sampling_idx(self.num_pixels)
                 self.scheduler.step()
+
+            # log the loss
+            self.writer.add_scalar('train_loss', running_loss / len(self.train_dataloader), global_step=epoch)
     
         # close the SummaryWriter when training is done        
         self.writer.close()

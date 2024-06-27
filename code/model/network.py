@@ -10,7 +10,7 @@ from model.ray_sampler import ErrorBoundSampler
 class ImplicitNetwork(nn.Module):
     def __init__(
             self,
-            feature_vector_size,
+            z_vector_size,
             sdf_bounding_sphere,
             d_in,
             d_out,
@@ -28,11 +28,13 @@ class ImplicitNetwork(nn.Module):
         self.sphere_scale = sphere_scale
 
         # single latent as feature vector, implicit network now headless decoder
-        # TODO: experiment with different initialization
-        # self.z = nn.Parameter(torch.randn(1, feature_vector_size))
+        self.z = nn.Parameter(torch.normal(torch.zeros(z_vector_size), torch.ones(z_vector_size)))
 
-        # from deepsdf
-        self.z = nn.Parameter(torch.randn(1, feature_vector_size) * 0.01)
+        # TODO: remove later, only for debugging
+        # self.z = nn.Parameter(torch.zeros(z_vector_size))
+        # self.z.requires_grad = False
+
+        print(f"z: {self.z}")
 
         # create list of layer sizes
         dims = [d_in] + dims + [d_out]
@@ -43,7 +45,7 @@ class ImplicitNetwork(nn.Module):
             embed_fn, input_ch = get_embedder(multires, input_dims=d_in)
             self.embed_fn = embed_fn
             # replacing original input size d_in by the encoded one input_ch
-            dims[0] = input_ch + feature_vector_size
+            dims[0] = input_ch + z_vector_size
 
         self.num_layers = len(dims)
         self.skip_in = skip_in
@@ -82,14 +84,17 @@ class ImplicitNetwork(nn.Module):
             setattr(self, "lin" + str(l), lin)
 
         self.softplus = nn.Softplus(beta=100)
+        # self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, input):
         if self.embed_fn is not None:
             input = self.embed_fn(input)
 
         # add latent code to input
-        # TODO: experiment with different normalization
+        # print(f"z: {self.z}")
         z_repeated = self.z.repeat(input.shape[0], 1)
+        # TODO: experiment with different normalization
         x = torch.cat([input, z_repeated], 1) / np.sqrt(2)
 
         for l in range(0, self.num_layers - 1):
@@ -97,14 +102,24 @@ class ImplicitNetwork(nn.Module):
 
             if l in self.skip_in:
                 # keep magnitude consistent
-                x = torch.cat([x, input], 1) / np.sqrt(2)
+                # TODO: experiment with different normalization
+                x = torch.cat([x, input, self.z.repeat(input.shape[0], 1)], 1) / np.sqrt(2)
 
             x = lin(x)
 
             if l < self.num_layers - 2:
                 x = self.softplus(x)
 
-        return x
+        sdf = x[:, :1]
+        rgb = x[:, 1:]
+
+        # Apply sigmoid to the rgb part
+        rgb = self.sigmoid(rgb)
+
+        # Concatenate the parts back together
+        outputs = torch.cat((sdf, rgb), dim=1)
+
+        return outputs
 
     # gradient computation wrt sdf, not feature vector! also duplicated in get_outputs, used for model_bg
     # TODO: this might be problematic, not sure where x is coming from, might have to concat z; should fail if not
@@ -128,6 +143,7 @@ class ImplicitNetwork(nn.Module):
 
         # note that there is only one column for the sdf, but indexing with 0 reduces the tensor by one dimension
         #  which leads to issues, therefore :1 is used
+        rgb = output[:,1:]
         sdf = output[:,:1]
 
         ''' Clamping the SDF with the scene bounding sphere, so that all rays are eventually occluded '''
@@ -145,7 +161,7 @@ class ImplicitNetwork(nn.Module):
             retain_graph=True,
             only_inputs=True)[0]
 
-        return sdf, self.z.repeat(sdf.shape[0], 1), gradients
+        return sdf, rgb, gradients
 
     # code duplication from above, used by ray_sampler
     # TODO: same issue
@@ -202,6 +218,8 @@ class RenderingNetwork(nn.Module):
 
         # usually IDR for VolSDF
         if self.mode == 'idr':
+            # TODO: experiment whether z should go in there as well; maybe already conditioned enough with z as input
+            #  to the implicit network
             rendering_input = torch.cat([points, view_dirs, normals, feature_vectors], dim=-1)
         elif self.mode == 'nerf':
             rendering_input = torch.cat([view_dirs, feature_vectors], dim=-1)
@@ -222,13 +240,15 @@ class RenderingNetwork(nn.Module):
 class VolSDFNetwork(nn.Module):
     def __init__(self, conf):
         super().__init__()
-        self.feature_vector_size = conf.get_int('feature_vector_size')
+        self.z_vector_size = conf.get_int('z_vector_size')
+        # self.feature_vector_size = conf.get_int('feature_vector_size')
         self.scene_bounding_sphere = conf.get_float('scene_bounding_sphere', default=1.0)
         self.white_bkgd = conf.get_bool('white_bkgd', default=False)
+        print(f"white_bkgd: {self.white_bkgd}")
         self.bg_color = torch.tensor(conf.get_list("bg_color", default=[1.0, 1.0, 1.0])).float().cuda()
 
-        self.implicit_network = ImplicitNetwork(self.feature_vector_size, 0.0 if self.white_bkgd else self.scene_bounding_sphere, **conf.get_config('implicit_network'))
-        self.rendering_network = RenderingNetwork(self.feature_vector_size, **conf.get_config('rendering_network'))
+        self.implicit_network = ImplicitNetwork(self.z_vector_size, 0.0 if self.white_bkgd else self.scene_bounding_sphere, **conf.get_config('implicit_network'))
+        # self.rendering_network = RenderingNetwork(self.feature_vector_size, **conf.get_config('rendering_network'))
 
         self.density = LaplaceDensity(**conf.get_config('density'))
         self.ray_sampler = ErrorBoundSampler(self.scene_bounding_sphere, **conf.get_config('ray_sampler'))
@@ -256,10 +276,12 @@ class VolSDFNetwork(nn.Module):
         dirs = ray_dirs.unsqueeze(1).repeat(1,N_samples,1)
         dirs_flat = dirs.reshape(-1, 3)
 
-        sdf, feature_vectors, gradients = self.implicit_network.get_outputs(points_flat)
-
-        rgb_flat = self.rendering_network(points_flat, gradients, dirs_flat, feature_vectors)
+        sdf, rgb_flat, gradients = self.implicit_network.get_outputs(points_flat)
         rgb = rgb_flat.reshape(-1, N_samples, 3)
+
+        # sdf, feature_vectors, gradients = self.implicit_network.get_outputs(points_flat)
+        # rgb_flat = self.rendering_network(points_flat, gradients, dirs_flat, feature_vectors)
+        # rgb = rgb_flat.reshape(-1, N_samples, 3)
 
         weights = self.volume_rendering(z_vals, sdf)
 
