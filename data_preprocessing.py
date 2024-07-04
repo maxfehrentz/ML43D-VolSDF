@@ -20,7 +20,7 @@ def preprocess_cameras(src_folder, dst_folder, num_scans, img_width, img_height)
     # Get the list of object categories
     obj_categories = [obj for obj in os.listdir(src_folder) if os.path.isdir(os.path.join(src_folder, obj))]
 
-    print(obj_categories)
+    index_counter = 0
 
     # Initialize the progress bar for object categories
     with tqdm(total=len(obj_categories), desc='Object Categories', position=0, leave=True) as pbar_obj:
@@ -68,7 +68,7 @@ def preprocess_cameras(src_folder, dst_folder, num_scans, img_width, img_height)
                         new_camera_data[f'world_mat_{idx}'] = custom_projection @ camera_mat @ world_mat @ scale_mat
                     
                     # Create the new instance directory
-                    new_instance_path = os.path.join(dst_folder, obj_category, f'scan{instance_index}')
+                    new_instance_path = os.path.join(dst_folder, f'scan{index_counter}')
                     os.makedirs(new_instance_path, exist_ok=True)
 
                     # Copy image files to the new directory
@@ -81,6 +81,8 @@ def preprocess_cameras(src_folder, dst_folder, num_scans, img_width, img_height)
 
                     # Update the instance progress bar
                     pbar_inst.update(1)
+
+                    index_counter = index_counter + 1
             
             # Update the object category progress bar
             pbar_obj.update(1)
@@ -100,10 +102,6 @@ def normalize_cameras(root_dir):
                     "--input_cameras_file", input_file,
                     "--output_cameras_file", output_file
                 ], capture_output=True, text=True)
-                
-                print(f"Normalized {input_file} and saved to {output_file}")
-                print(f"Subprocess output: {result.stdout}")
-                print(f"Subprocess errors: {result.stderr}")
                 
                 
 if __name__=="__main__": 
