@@ -10,13 +10,6 @@ def preprocess_cameras(src_folder, dst_folder, num_scans, img_width, img_height)
     if not os.path.exists(dst_folder):
         os.makedirs(dst_folder)
 
-    custom_projection = np.array([
-                                [img_width/2,            0, 0,  img_width/2],
-                                [0,           img_height/2, 0, img_height/2],
-                                [0,                      0, 1,            0],
-                                [0,                      0, 0,            1]
-                            ])
-
     # Get the list of object categories
     obj_categories = [obj for obj in os.listdir(src_folder) if os.path.isdir(os.path.join(src_folder, obj))]
 
@@ -64,8 +57,13 @@ def preprocess_cameras(src_folder, dst_folder, num_scans, img_width, img_height)
                         world_mat = camera_data[world_mat_key]
                         camera_mat = camera_data[camera_mat_key]
                         scale_mat = camera_data[scale_mat_key] if scale_mat_key else np.identity(4)
+                        
+                        camera_mat[0][0] *= img_width
+                        camera_mat[1][1] *= img_height
+                        camera_mat[0][2] += img_width
+                        camera_mat[1][2] += img_height
                     
-                        new_camera_data[f'world_mat_{idx}'] = custom_projection @ camera_mat @ world_mat @ scale_mat
+                        new_camera_data[f'world_mat_{idx}'] = camera_mat @ world_mat @ scale_mat
                     
                     # Create the new instance directory
                     new_instance_path = os.path.join(dst_folder, f'scan{index_counter}')
