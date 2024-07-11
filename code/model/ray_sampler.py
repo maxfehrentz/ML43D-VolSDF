@@ -64,7 +64,7 @@ class ErrorBoundSampler(RaySampler):
         if inverse_sphere_bg:
             self.inverse_sphere_sampler = UniformSampler(1.0, 0.0, N_samples_inverse_sphere, False, far=1.0)
 
-    def get_z_vals(self, ray_dirs, cam_loc, model):
+    def get_z_vals(self, ray_dirs, cam_loc, model, scene_indices):
         beta0 = model.density.get_beta().detach()
 
         # Start with uniform sampling
@@ -85,7 +85,7 @@ class ErrorBoundSampler(RaySampler):
 
             # Calculating the SDF only for the new sampled points
             with torch.no_grad():
-                samples_sdf = model.implicit_network.get_sdf_vals(points_flat)
+                samples_sdf = model.implicit_network.get_sdf_vals(points_flat, scene_indices)
             if samples_idx is not None:
                 sdf_merge = torch.cat([sdf.reshape(-1, z_vals.shape[1] - samples.shape[1]),
                                        samples_sdf.reshape(-1, samples.shape[1])], -1)

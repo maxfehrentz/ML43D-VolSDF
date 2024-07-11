@@ -35,7 +35,7 @@ class ImplicitNetwork(nn.Module):
         # self.z = nn.Parameter(torch.zeros(z_vector_size))
         # self.z.requires_grad = False
 
-        print(f"z: {self.z}")
+        #print(f"z: {self.z}")
 
         # create list of layer sizes
         dims = [d_in] + dims + [d_out]
@@ -96,8 +96,8 @@ class ImplicitNetwork(nn.Module):
         z_selected = self.z[scene_indices]
 
         print(f"z_selected: {z_selected}") # TODO: remove later
-        print(f"scene_indices: {scene_indices}")
-        print(f"scene_indices.shape: {scene_indices.shape}")
+        #print(f"scene_indices: {scene_indices}")
+        #print(f"scene_indices.shape: {scene_indices.shape}")
 
         # Ensure z_selected has the same batch dimension as input
         if z_selected.dim() == 1:
@@ -105,6 +105,10 @@ class ImplicitNetwork(nn.Module):
 
         # Repeat z_selected to match the input shape
         z_repeated = z_selected.repeat(input.shape[0] // z_selected.shape[0], 1)
+
+	
+        #print(f"z_repeated shape: {z_repeated.shape}")
+        #print(f"input shape: {input.shape}")
 
         # add latent code to input
         x = torch.cat([input, z_repeated], 1) / np.sqrt(2)
@@ -286,7 +290,7 @@ class VolSDFNetwork(nn.Module):
         cam_loc = cam_loc.unsqueeze(1).repeat(1, num_pixels, 1).reshape(-1, 3)
         ray_dirs = ray_dirs.reshape(-1, 3)
 
-        z_vals, z_samples_eik = self.ray_sampler.get_z_vals(ray_dirs, cam_loc, self) # TODO: how does z val sampling work? should it be adjusted to consider different scenes?
+        z_vals, z_samples_eik = self.ray_sampler.get_z_vals(ray_dirs, cam_loc, self, scene_indices=scene_indices) # TODO: how does z val sampling work? should it be adjusted to consider different scenes?
         N_samples = z_vals.shape[1]
 
         # Ensure scene_indices has the right shape
@@ -330,10 +334,14 @@ class VolSDFNetwork(nn.Module):
 
             # add some of the near surface points
             eik_near_points = (cam_loc.unsqueeze(1) + z_samples_eik.unsqueeze(2) * ray_dirs.unsqueeze(1)).reshape(-1, 3)
+            
             eikonal_points = torch.cat([eikonal_points, eik_near_points], 0)
 
-            # Repeat scene_indices for eikonal points
-            eik_scene_indices = scene_indices.repeat_interleave(n_eik_points // batch_size + z_samples_eik.shape[1])
+            # Adjust the scene indices to match the points TODO: dimensions are correct, check if has expected behaviour
+            eik_scene_indices = scene_indices.view(-1)
+            eik_near_scene_indices = scene_indices.repeat_interleave(z_samples_eik.shape[1])            
+            
+            eik_scene_indices = torch.cat([eik_scene_indices, eik_near_scene_indices], 0)
 
             grad_theta = self.implicit_network.gradient(eikonal_points, eik_scene_indices)
             output['grad_theta'] = grad_theta

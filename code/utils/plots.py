@@ -11,7 +11,7 @@ from PIL import Image
 from utils import rend_util
 
 
-def plot(implicit_network, indices, plot_data, path, epoch, img_res, plot_nimgs, resolution, grid_boundary, level=0):
+def plot(implicit_network, indices, scene_indices, plot_data, path, epoch, img_res, plot_nimgs, resolution, grid_boundary, level=0):
 
     if plot_data is not None:
         cam_loc, cam_dir = rend_util.get_camera_for_plot(plot_data['pose'])
@@ -27,7 +27,7 @@ def plot(implicit_network, indices, plot_data, path, epoch, img_res, plot_nimgs,
     # plot surface
     surface_traces = get_surface_trace(path=path,
                                        epoch=epoch,
-                                       sdf=lambda x: implicit_network(x)[:, 0],
+                                       sdf=lambda x, scene_indices: implicit_network(x, scene_indices)[:, 0],
                                        resolution=resolution,
                                        grid_boundary=grid_boundary,
                                        level=level
@@ -401,3 +401,4 @@ def plot_images(rgb_points, ground_true, path, epoch, plot_nrow, img_res):
 def lin2img(tensor, img_res):
     batch_size, num_samples, channels = tensor.shape
     return tensor.permute(0, 2, 1).view(batch_size, channels, img_res[0], img_res[1])
+

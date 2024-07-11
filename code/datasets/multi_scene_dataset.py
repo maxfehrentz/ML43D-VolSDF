@@ -102,8 +102,12 @@ class MultiSceneDataset(torch.utils.data.Dataset):
             "uv": uv,
             "intrinsics": self.all_intrinsics[scene_idx][local_idx],
             "pose": self.all_poses[scene_idx][local_idx],
-            "scene_idx": scene_idx #TODO: check if I need the scene index or id. The true id can be infered as self.scan_ids[scene_idx]
+            "scene_idx": torch.tensor(scene_idx, dtype=torch.long) #TODO: check if I need the scene index or id. The true id can be infered as self.scan_ids[scene_idx]
         }
+
+        #print(type(sample["intrinsics"]))
+        #print(type(sample["pose"]))
+        #print(type(sample["scene_idx"]))
 
         # Prepare ground truth data
         rgb = self.all_rgb_images[scene_idx][local_idx]
