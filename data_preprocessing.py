@@ -44,6 +44,7 @@ def preprocess_cameras(src_folder, dst_folder, num_scans, img_width, img_height)
 
                     # Create a dictionary to store the new camera data
                     new_camera_data = {}
+                    new_scale_data = {}
                     
                     for idx in indices:
                         world_mat_key = f'world_mat_{idx}'
@@ -58,12 +59,14 @@ def preprocess_cameras(src_folder, dst_folder, num_scans, img_width, img_height)
                         camera_mat = camera_data[camera_mat_key]
                         scale_mat = camera_data[scale_mat_key] if scale_mat_key else np.identity(4)
                         
-                        camera_mat[0][0] *= img_width
-                        camera_mat[1][1] *= img_height
-                        camera_mat[0][2] += img_width
-                        camera_mat[1][2] += img_height
+                        camera_mat[0][0] *= img_width/2
+                        camera_mat[1][1] *= img_height/2
+                        camera_mat[0][2] += img_width/2
+                        camera_mat[1][2] += img_height/2
+                        #camera_mat[2][2] *= -1
                     
-                        new_camera_data[f'world_mat_{idx}'] = camera_mat @ world_mat @ scale_mat
+                        new_camera_data[f'world_mat_{idx}'] = camera_mat @ world_mat
+                        new_scale_data[f'scale_mat_{idx}'] = scale_mat
                     
                     # Create the new instance directory
                     new_instance_path = os.path.join(dst_folder, f'scan{index_counter}')
@@ -75,12 +78,12 @@ def preprocess_cameras(src_folder, dst_folder, num_scans, img_width, img_height)
                     shutil.copytree(src_images_path, dst_images_path)
 
                     # Save the new cameras.npz file
-                    np.savez(os.path.join(new_instance_path, 'cameras.npz'), **new_camera_data)
-
-                    # Update the instance progress bar
-                    pbar_inst.update(1)
+                    np.savez(os.path.join(new_instance_path, 'cameras.npz'), **new_camera_data, **new_scale_data)
 
                     index_counter = index_counter + 1
+                    
+                    # Update the instance progress bar
+                    pbar_inst.update(1)
             
             # Update the object category progress bar
             pbar_obj.update(1)
