@@ -133,7 +133,6 @@ evals*
 data/DTU
 data/BlendedMVS
 data/NMR_Dataset
-data/NMR_Dataset_half
 data/NMR_Dataset.zip
 data/NMR_Dataset_preprocessed
 data/__MACOSX
@@ -142,3 +141,5 @@ code/.idea/
 .DS_Store
 ._.DS_Store
 .idea/
+
+.vscode/

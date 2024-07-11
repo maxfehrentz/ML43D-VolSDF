@@ -87,7 +87,7 @@ class MultiSceneDataset(torch.utils.data.Dataset):
         """
         # Determine which scene this sample belongs to
         local_idx = idx #the local index that will indicate the position of sample within the scene
-        scene_idx = 0
+        scene_idx = 0 # the scene index starting from 0
         while local_idx >= self.scene_sample_counts[scene_idx]:
             local_idx -= self.scene_sample_counts[scene_idx]
             scene_idx += 1
@@ -97,11 +97,12 @@ class MultiSceneDataset(torch.utils.data.Dataset):
         uv = torch.from_numpy(np.flip(uv, axis=0).copy()).float()
         uv = uv.reshape(2, -1).transpose(1, 0)
 
-        # Prepare sample data
+        # Prepare sample data TODO: check if scene idx is expected
         sample = {
             "uv": uv,
             "intrinsics": self.all_intrinsics[scene_idx][local_idx],
-            "pose": self.all_poses[scene_idx][local_idx]
+            "pose": self.all_poses[scene_idx][local_idx],
+            "scene_idx": scene_idx #TODO: check if I need the scene index or id. The true id can be infered as self.scan_ids[scene_idx]
         }
 
         # Prepare ground truth data
