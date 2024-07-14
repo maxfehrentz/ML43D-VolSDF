@@ -93,7 +93,6 @@ class ErrorBoundSampler(RaySampler):
             else:
                 sdf = samples_sdf
 
-
             # Calculating the bound d* (Theorem 1)
             d = sdf.reshape(z_vals.shape)
             dists = z_vals[:, 1:] - z_vals[:, :-1]
@@ -109,7 +108,6 @@ class ErrorBoundSampler(RaySampler):
             d_star[mask] = (2.0 * torch.sqrt(area_before_sqrt[mask])) / (a[mask])
             d_star = (d[:, 1:].sign() * d[:, :-1].sign() == 1) * d_star  # Fixing the sign
 
-
             # Updating beta using line search
             curr_error = self.get_error_bound(beta0, model, sdf, z_vals, dists, d_star)
             beta[curr_error <= self.eps] = beta0
@@ -120,7 +118,6 @@ class ErrorBoundSampler(RaySampler):
                 beta_max[curr_error <= self.eps] = beta_mid[curr_error <= self.eps]
                 beta_min[curr_error > self.eps] = beta_mid[curr_error > self.eps]
             beta = beta_max
-
 
             # Upsample more points
             density = model.density(sdf.reshape(z_vals.shape), beta=beta.unsqueeze(-1))
@@ -142,12 +139,15 @@ class ErrorBoundSampler(RaySampler):
                 N = self.N_samples_eval
 
                 bins = z_vals
-                error_per_section = torch.exp(-d_star / beta.unsqueeze(-1)) * (dists[:,:-1] ** 2.) / (4 * beta.unsqueeze(-1) ** 2)
+                error_per_section = torch.exp(-d_star / beta.unsqueeze(-1)) * (dists[:, :-1] ** 2.) / (
+                            4 * beta.unsqueeze(-1) ** 2)
                 error_integral = torch.cumsum(error_per_section, dim=-1)
-                bound_opacity = (torch.clamp(torch.exp(error_integral),max=1.e6) - 1.0) * transmittance[:,:-1]
+                bound_opacity = (torch.clamp(torch.exp(error_integral), max=1.e6) - 1.0) * transmittance[:, :-1]
 
                 pdf = bound_opacity + self.add_tiny
                 pdf = pdf / torch.sum(pdf, -1, keepdim=True)
+                if torch.isnan(pdf).any():
+                    print("pdf contains nan values")
                 cdf = torch.cumsum(pdf, -1)
                 cdf = torch.cat([torch.zeros_like(cdf[..., :1]), cdf], -1)
 
@@ -162,7 +162,6 @@ class ErrorBoundSampler(RaySampler):
                 pdf = pdf / torch.sum(pdf, -1, keepdim=True)
                 cdf = torch.cumsum(pdf, -1)
                 cdf = torch.cat([torch.zeros_like(cdf[..., :1]), cdf], -1)  # (batch, len(bins))
-
 
             # Invert CDF
             if (not_converge and total_iters < self.max_total_iters) or (not model.training):
@@ -185,24 +184,23 @@ class ErrorBoundSampler(RaySampler):
             t = (u - cdf_g[..., 0]) / denom
             samples = bins_g[..., 0] + t * (bins_g[..., 1] - bins_g[..., 0])
 
-
             # Adding samples if we not converged
             if not_converge and total_iters < self.max_total_iters:
                 z_vals, samples_idx = torch.sort(torch.cat([z_vals, samples], -1), -1)
 
-
         z_samples = samples
 
-        near, far = self.near * torch.ones(ray_dirs.shape[0], 1).cuda(), self.far * torch.ones(ray_dirs.shape[0],1).cuda()
-        if self.inverse_sphere_bg: # if inverse sphere then need to add the far sphere intersection
-            far = rend_util.get_sphere_intersections(cam_loc, ray_dirs, r=self.scene_bounding_sphere)[:,1:]
+        near, far = self.near * torch.ones(ray_dirs.shape[0], 1).cuda(), self.far * torch.ones(ray_dirs.shape[0],
+                                                                                               1).cuda()
+        if self.inverse_sphere_bg:  # if inverse sphere then need to add the far sphere intersection
+            far = rend_util.get_sphere_intersections(cam_loc, ray_dirs, r=self.scene_bounding_sphere)[:, 1:]
 
         if self.N_samples_extra > 0:
             if model.training:
                 sampling_idx = torch.randperm(z_vals.shape[1])[:self.N_samples_extra]
             else:
-                sampling_idx = torch.linspace(0, z_vals.shape[1]-1, self.N_samples_extra).long()
-            z_vals_extra = torch.cat([near, far, z_vals[:,sampling_idx]], -1)
+                sampling_idx = torch.linspace(0, z_vals.shape[1] - 1, self.N_samples_extra).long()
+            z_vals_extra = torch.cat([near, far, z_vals[:, sampling_idx]], -1)
         else:
             z_vals_extra = torch.cat([near, far], -1)
 
@@ -214,7 +212,7 @@ class ErrorBoundSampler(RaySampler):
 
         if self.inverse_sphere_bg:
             z_vals_inverse_sphere = self.inverse_sphere_sampler.get_z_vals(ray_dirs, cam_loc, model)
-            z_vals_inverse_sphere = z_vals_inverse_sphere * (1./self.scene_bounding_sphere)
+            z_vals_inverse_sphere = z_vals_inverse_sphere * (1. / self.scene_bounding_sphere)
             z_vals = (z_vals, z_vals_inverse_sphere)
 
         return z_vals, z_samples_eik

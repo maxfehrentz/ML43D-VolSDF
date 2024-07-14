@@ -4,7 +4,7 @@ import numpy as np
 from utils import rend_util
 from model.embedder import *
 from model.density import LaplaceDensity
-from model.ray_sampler import ErrorBoundSampler
+from model.ray_sampler import ErrorBoundSampler, UniformSampler
 
 # TODO: this seems to be the only relevant file for modification 2: contains f and radiance field
 class ImplicitNetwork(nn.Module):
@@ -31,12 +31,6 @@ class ImplicitNetwork(nn.Module):
         # Create a parameter tensor to store latent vectors for all scenes
         self.z = nn.Parameter(torch.normal(torch.zeros(num_scenes, z_vector_size), torch.ones(num_scenes, z_vector_size)))
 
-        # TODO: remove later, only for debugging
-        # self.z = nn.Parameter(torch.zeros(z_vector_size))
-        # self.z.requires_grad = False
-
-        #print(f"z: {self.z}")
-
         # create list of layer sizes
         dims = [d_in] + dims + [d_out]
 
@@ -53,8 +47,6 @@ class ImplicitNetwork(nn.Module):
 
         for l in range(0, self.num_layers - 1):
             # consider skip connections
-            # TODO: currently, removed skip connections, otherwise we would need to change the architecture because the
-            #  the layers are too small -> removing skip is the less-severe modification
             if l + 1 in self.skip_in:
                 out_dim = dims[l + 1] - dims[0]
             else:
@@ -95,20 +87,12 @@ class ImplicitNetwork(nn.Module):
         # Select the appropriate latent vectors for the given scene indices
         z_selected = self.z[scene_indices]
 
-        print(f"z_selected: {z_selected}") # TODO: remove later
-        #print(f"scene_indices: {scene_indices}")
-        #print(f"scene_indices.shape: {scene_indices.shape}")
-
         # Ensure z_selected has the same batch dimension as input
         if z_selected.dim() == 1:
             z_selected = z_selected.unsqueeze(0)
 
         # Repeat z_selected to match the input shape
         z_repeated = z_selected.repeat(input.shape[0] // z_selected.shape[0], 1)
-
-	
-        #print(f"z_repeated shape: {z_repeated.shape}")
-        #print(f"input shape: {input.shape}")
 
         # add latent code to input
         x = torch.cat([input, z_repeated], 1) / np.sqrt(2)
@@ -137,7 +121,6 @@ class ImplicitNetwork(nn.Module):
         return outputs
 
     # gradient computation wrt sdf, not feature vector! also duplicated in get_outputs, used for model_bg
-    # TODO: this might be problematic, not sure where x is coming from, might have to concat z; should fail if not
     def gradient(self, x, scene_indices):
         x.requires_grad_(True)
         y = self.forward(x, scene_indices)[:,:1]
@@ -151,7 +134,6 @@ class ImplicitNetwork(nn.Module):
             only_inputs=True)[0]
         return gradients
 
-    # TODO: same question about x as in gradient above
     def get_outputs(self, x, scene_indices):
         x.requires_grad_(True)
         output = self.forward(x, scene_indices)
@@ -167,7 +149,7 @@ class ImplicitNetwork(nn.Module):
             sdf = torch.minimum(sdf, sphere_sdf)
 
         d_output = torch.ones_like(sdf, requires_grad=False, device=sdf.device)
-        # TODO: do I need to put z somewhere in there? or is it already because it is concatanted with x in forward?
+        # TODO: still not quite sure if this is right or problematic with z
         gradients = torch.autograd.grad(
             outputs=sdf,
             inputs=x,
@@ -179,7 +161,6 @@ class ImplicitNetwork(nn.Module):
         return sdf, rgb, gradients
 
     # code duplication from above, used by ray_sampler
-    # TODO: same issue
     def get_sdf_vals(self, x, scene_indices):
         sdf = self.forward(x, scene_indices)[:,:1]
         ''' Clamping the SDF with the scene bounding sphere, so that all rays are eventually occluded '''
@@ -189,6 +170,7 @@ class ImplicitNetwork(nn.Module):
         return sdf
 
 
+# TODO: remove later, not used anymore
 class RenderingNetwork(nn.Module):
     def __init__(
             self,
@@ -263,14 +245,12 @@ class VolSDFNetwork(nn.Module):
         print(f"white_bkgd: {self.white_bkgd}")
         self.bg_color = torch.tensor(conf.get_list("bg_color", default=[1.0, 1.0, 1.0])).float().cuda()
 
-        
         self.implicit_network = ImplicitNetwork(
             self.z_vector_size,
             self.num_scenes,  # Pass num_scenes to ImplicitNetwork
             0.0 if self.white_bkgd else self.scene_bounding_sphere,
             **conf.get_config('implicit_network')
         )
-        # self.rendering_network = RenderingNetwork(self.feature_vector_size, **conf.get_config('rendering_network')) # TODO: enable again when done testing
 
         self.density = LaplaceDensity(**conf.get_config('density'))
         self.ray_sampler = ErrorBoundSampler(self.scene_bounding_sphere, **conf.get_config('ray_sampler'))
@@ -290,7 +270,7 @@ class VolSDFNetwork(nn.Module):
         cam_loc = cam_loc.unsqueeze(1).repeat(1, num_pixels, 1).reshape(-1, 3)
         ray_dirs = ray_dirs.reshape(-1, 3)
 
-        z_vals, z_samples_eik = self.ray_sampler.get_z_vals(ray_dirs, cam_loc, self, scene_indices=scene_indices) # TODO: how does z val sampling work? should it be adjusted to consider different scenes?
+        z_vals, z_samples_eik = self.ray_sampler.get_z_vals(ray_dirs, cam_loc, self, scene_indices=scene_indices)
         N_samples = z_vals.shape[1]
 
         # Ensure scene_indices has the right shape
@@ -309,10 +289,6 @@ class VolSDFNetwork(nn.Module):
 
         sdf, rgb_flat, gradients = self.implicit_network.get_outputs(points_flat, scene_indices_flat)
         rgb = rgb_flat.reshape(-1, N_samples, 3)
-
-        # sdf, feature_vectors, gradients = self.implicit_network.get_outputs(points_flat) # TODO: enable rendering again when done testing
-        # rgb_flat = self.rendering_network(points_flat, gradients, dirs_flat, feature_vectors)
-        # rgb = rgb_flat.reshape(-1, N_samples, 3)
 
         weights = self.volume_rendering(z_vals, sdf)
 
@@ -337,7 +313,7 @@ class VolSDFNetwork(nn.Module):
             
             eikonal_points = torch.cat([eikonal_points, eik_near_points], 0)
 
-            # Adjust the scene indices to match the points TODO: dimensions are correct, check if has expected behaviour
+            # Adjust the scene indices to match the points
             eik_scene_indices = scene_indices.view(-1)
             eik_near_scene_indices = scene_indices.repeat_interleave(z_samples_eik.shape[1])            
             

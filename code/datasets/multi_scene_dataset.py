@@ -18,7 +18,13 @@ class MultiSceneDataset(torch.utils.data.Dataset):
         """
         self.data_dir = os.path.join('../data', data_dir)
         self.img_res = img_res
-        self.scan_ids = scan_ids
+
+        # Empty list means to use the whole folder
+        if len(scan_ids) > 0:
+            self.scan_ids = scan_ids
+        else:
+            self.scan_ids = [x for x in os.listdir(self.data_dir)]
+            print(f"scan ids: {self.scan_ids}")
         self.total_pixels = img_res[0] * img_res[1]
 
         # Lists to store data for all scenes
@@ -29,9 +35,14 @@ class MultiSceneDataset(torch.utils.data.Dataset):
         self.scene_sample_counts = []
 
         # Iterate over all scan IDs to load data for each scene
-        for scan_id in scan_ids:
-            instance_dir = os.path.join(self.data_dir, 'scan{0}'.format(scan_id))
-            self.all_instance_dirs.append(instance_dir)
+        for scan_id in self.scan_ids:
+            # If empty scan ids were passed, we use the whole folder under no guarantee how they are named or ordered
+            if len(scan_ids) > 0:
+                instance_dir = os.path.join(self.data_dir, 'scan{0}'.format(scan_id))
+                self.all_instance_dirs.append(instance_dir)
+            else:
+                instance_dir = os.path.join(self.data_dir, scan_id)
+                self.all_instance_dirs.append(instance_dir)
 
             # Load image paths
             image_dir = '{0}/image'.format(instance_dir)
@@ -41,16 +52,41 @@ class MultiSceneDataset(torch.utils.data.Dataset):
             # Load camera parameters
             cam_file = '{0}/cameras.npz'.format(instance_dir)
             camera_dict = np.load(cam_file)
-            scale_mats = [camera_dict['scale_mat_%d' % idx].astype(np.float32) for idx in range(n_images)]
             world_mats = [camera_dict['world_mat_%d' % idx].astype(np.float32) for idx in range(n_images)]
+            camera_mats = [camera_dict['camera_mat_%d' % idx].astype(np.float32) for idx in range(n_images)]
+            # Extract scale matrix, otherwise identity
+            scale_mats = [camera_dict['scale_mat_%d' % idx].astype(np.float32) if 'scale_mat_%d' % idx in camera_dict else np.eye(4) for idx in range(n_images)]
 
             # Process camera parameters
             intrinsics = []
             poses = []
-            for scale_mat, world_mat in zip(scale_mats, world_mats):
-                P = world_mat @ scale_mat
-                P = P[:3, :4]
-                intrinsic, pose = rend_util.load_K_Rt_from_P(None, P)
+
+            for camera_mat, scale_mat, world_mat in zip(camera_mats, scale_mats, world_mats):
+                # Fix the camera matrix; currently it maps to values between -1 and 1, but we want img_res
+                camera_mat[0, 2] = (camera_mat[0, 2] + 1) * (self.img_res[1] / 2)
+                camera_mat[1, 2] = (camera_mat[1, 2] + 1) * (self.img_res[0] / 2)
+                camera_mat[0, 0] *= self.img_res[1] / 2
+                camera_mat[1, 1] *= self.img_res[0] / 2
+
+                print(f"scale_mat: \n{scale_mat}")
+                print(f"world_mat: \n{world_mat}")
+                print(f"camera_mat: \n{camera_mat}")
+
+                # P = camera_mat @ world_mat @ scale_mat
+                # P = P[:3, :4]
+                # intrinsic, pose = rend_util.load_K_Rt_from_P(None, P)
+                # print(f"intrinsic: \n{intrinsic}")
+                # print(f"pose: \n{pose}")
+
+                R = world_mat[:3, :3]
+                t = world_mat[:3, 3]
+                pose = np.eye(4, dtype=np.float32)
+                pose[:3, :3] = R.transpose()
+                pose[:3, 3] = -R.transpose() @ t
+                intrinsic = camera_mat
+                print(f"intrinsic: \n{intrinsic}")
+                print(f"pose: \n{pose}")
+
                 intrinsics.append(torch.from_numpy(intrinsic).float())
                 poses.append(torch.from_numpy(pose).float())
 

@@ -77,6 +77,10 @@ class VolSDFTrainRunner():
         dataset_class = utils.get_class(self.conf.get_string('train.dataset_class'))
         self.train_dataset = dataset_class(**dataset_conf)
 
+        # TODO: a bit hacky, check multi_scene_dataset.py for details
+        if len(self.scan_ids) == 0:
+            self.scan_ids = self.train_dataset.scan_ids
+
         self.ds_len = len(self.train_dataset)
         print('Finish loading data. Data-set size: {0}'.format(self.ds_len))
 
@@ -190,7 +194,7 @@ class VolSDFTrainRunner():
                 model_input["intrinsics"] = model_input["intrinsics"].cuda()
                 model_input["uv"] = model_input["uv"].cuda()
                 model_input['pose'] = model_input['pose'].cuda()
-                model_input['scene_idx'] = model_input['scene_idx'].cuda() # TODO: check if idx or true id is required. See multi_scene_dataset.py for details
+                model_input['scene_idx'] = model_input['scene_idx'].cuda()
 
                 split = utils.split_input(model_input, self.total_pixels, n_pixels=self.split_n_pixels)
                 res = []
@@ -206,6 +210,7 @@ class VolSDFTrainRunner():
 
                 plt.plot(self.model.implicit_network,
                          indices,
+                         model_input['scene_idx'],
                          plot_data,
                          self.plots_dir,
                          epoch,
@@ -218,19 +223,23 @@ class VolSDFTrainRunner():
             self.train_dataset.change_sampling_idx(self.num_pixels)
 
             running_loss = 0
+            running_loss_rgb = 0
+            running_loss_eikonal = 0
             for data_index, (indices, model_input, ground_truth) in enumerate(self.train_dataloader):
                 model_input["intrinsics"] = model_input["intrinsics"].cuda()
                 model_input["uv"] = model_input["uv"].cuda()
                 model_input['pose'] = model_input['pose'].cuda()
-                model_input['scene_idx'] = model_input['scene_idx'].cuda() # TODO: check if idx or true id is required. See multi_scene_dataset.py for details
+                model_input['scene_idx'] = model_input['scene_idx'].cuda()
 
                 model_outputs = self.model(model_input)
 
                 loss_output = self.loss(model_outputs, ground_truth)
 
                 loss = loss_output['loss']
-                
+
                 running_loss += loss.item()
+                running_loss_rgb += loss_output['rgb_loss'].item()
+                running_loss_eikonal += loss_output['eikonal_loss'].item()
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -249,11 +258,14 @@ class VolSDFTrainRunner():
                                     loss_output['rgb_loss'].item(),
                                     loss_output['eikonal_loss'].item(),
                                     psnr.item()))
+                    print(f"current latents:\n{self.model.implicit_network.z}")
 
                 self.train_dataset.change_sampling_idx(self.num_pixels)
                 self.scheduler.step()
 
             self.writer.add_scalar('train_loss', running_loss / len(self.train_dataloader), global_step=epoch)
+            self.writer.add_scalar('train_rgb_loss', running_loss_rgb / len(self.train_dataloader), global_step=epoch)
+            self.writer.add_scalar('train_eikonal_loss', running_loss_eikonal / len(self.train_dataloader), global_step=epoch)
     
         self.writer.close()
         self.save_checkpoints(epoch)

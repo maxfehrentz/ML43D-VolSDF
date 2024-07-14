@@ -27,7 +27,7 @@ def plot(implicit_network, indices, scene_indices, plot_data, path, epoch, img_r
     # plot surface
     surface_traces = get_surface_trace(path=path,
                                        epoch=epoch,
-                                       sdf=lambda x, scene_indices: implicit_network(x, scene_indices)[:, 0],
+                                       sdf=lambda x: implicit_network(x, scene_indices)[:, 0],
                                        resolution=resolution,
                                        grid_boundary=grid_boundary,
                                        level=level
