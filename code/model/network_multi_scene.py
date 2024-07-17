@@ -6,7 +6,6 @@ from model.embedder import *
 from model.density import LaplaceDensity
 from model.ray_sampler import ErrorBoundSampler, UniformSampler
 
-# TODO: this seems to be the only relevant file for modification 2: contains f and radiance field
 class ImplicitNetwork(nn.Module):
     def __init__(
             self,
@@ -29,7 +28,10 @@ class ImplicitNetwork(nn.Module):
         self.sphere_scale = sphere_scale
 
         # Create a parameter tensor to store latent vectors for all scenes
-        self.z = nn.Parameter(torch.normal(torch.zeros(num_scenes, z_vector_size), torch.ones(num_scenes, z_vector_size)))
+        self.z = nn.Parameter(torch.normal(torch.zeros(num_scenes, z_vector_size), torch.ones(num_scenes, z_vector_size) * 0.01))
+
+        # Latent for inference
+        self.z_inference = nn.Parameter(torch.normal(torch.zeros(1, z_vector_size), torch.ones(1, z_vector_size) * 0.01))
 
         # create list of layer sizes
         dims = [d_in] + dims + [d_out]
@@ -80,12 +82,21 @@ class ImplicitNetwork(nn.Module):
         # self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
 
+    def init_latent(self):
+        # Initialize the latent vector for inference
+        self.z_inference.data = (torch.normal(torch.zeros(1, self.z.size(1)), torch.ones(1, self.z.size(1)) * 0.01)).cuda()
+        return
+
     def forward(self, input, scene_indices):
         if self.embed_fn is not None:
             input = self.embed_fn(input)
 
-        # Select the appropriate latent vectors for the given scene indices
-        z_selected = self.z[scene_indices]
+        if self.training:
+            # Select the appropriate latent vectors for the given scene indices
+            z_selected = self.z[scene_indices]
+        else:
+            # Take the inference z at test time, scene_index/indices not used for inference
+            z_selected = self.z_inference
 
         # Ensure z_selected has the same batch dimension as input
         if z_selected.dim() == 1:
@@ -113,6 +124,7 @@ class ImplicitNetwork(nn.Module):
         rgb = x[:, 1:]
 
         # Apply sigmoid to the rgb part
+        # TODO: have suspicion that gradients are saturating here with sigmoid, color reconstruction subpar
         rgb = self.sigmoid(rgb)
 
         # Concatenate the parts back together

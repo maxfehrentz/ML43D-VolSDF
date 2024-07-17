@@ -24,7 +24,6 @@ class MultiSceneDataset(torch.utils.data.Dataset):
             self.scan_ids = scan_ids
         else:
             self.scan_ids = [x for x in os.listdir(self.data_dir)]
-            print(f"scan ids: {self.scan_ids}")
         self.total_pixels = img_res[0] * img_res[1]
 
         # Lists to store data for all scenes
@@ -68,10 +67,6 @@ class MultiSceneDataset(torch.utils.data.Dataset):
                 camera_mat[0, 0] *= self.img_res[1] / 2
                 camera_mat[1, 1] *= self.img_res[0] / 2
 
-                print(f"scale_mat: \n{scale_mat}")
-                print(f"world_mat: \n{world_mat}")
-                print(f"camera_mat: \n{camera_mat}")
-
                 # P = camera_mat @ world_mat @ scale_mat
                 # P = P[:3, :4]
                 # intrinsic, pose = rend_util.load_K_Rt_from_P(None, P)
@@ -84,8 +79,6 @@ class MultiSceneDataset(torch.utils.data.Dataset):
                 pose[:3, :3] = R.transpose()
                 pose[:3, 3] = -R.transpose() @ t
                 intrinsic = camera_mat
-                print(f"intrinsic: \n{intrinsic}")
-                print(f"pose: \n{pose}")
 
                 intrinsics.append(torch.from_numpy(intrinsic).float())
                 poses.append(torch.from_numpy(pose).float())
