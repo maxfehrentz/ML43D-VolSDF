@@ -30,7 +30,10 @@ class SceneDataset(torch.utils.data.Dataset):
 
         self.cam_file = '{0}/cameras.npz'.format(self.instance_dir)
         camera_dict = np.load(self.cam_file)
-        scale_mats = [camera_dict['scale_mat_%d' % idx].astype(np.float32) for idx in range(self.n_images)]
+
+        # Extract scale matrix, otherwise identity
+        scale_mats = [camera_dict['scale_mat_%d' % idx].astype(np.float32) if 'scale_mat_%d' % idx in camera_dict else np.eye(4) for idx in range(self.n_images)]
+        # scale_mats = [camera_dict['scale_mat_%d' % idx].astype(np.float32) for idx in range(self.n_images)]
         world_mats = [camera_dict['world_mat_%d' % idx].astype(np.float32) for idx in range(self.n_images)]
 
         self.intrinsics_all = []

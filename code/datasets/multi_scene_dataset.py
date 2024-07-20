@@ -25,6 +25,7 @@ class MultiSceneDataset(torch.utils.data.Dataset):
         else:
             self.scan_ids = [x for x in os.listdir(self.data_dir)]
         self.total_pixels = img_res[0] * img_res[1]
+        print(f"Scan IDs: {self.scan_ids}")
 
         # Lists to store data for all scenes
         self.all_rgb_images = []

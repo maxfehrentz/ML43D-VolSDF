@@ -142,7 +142,7 @@ dependencies:
 - snappy=1.1.8
 - sqlite=3.36.0
 - tenacity=8.0.1
-- tensorboard=2.17.0
+- tensorboard
 - tifffile=2020.10.1
 - tk=8.6.11
 - toolz=0.11.1

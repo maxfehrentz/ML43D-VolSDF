@@ -25,6 +25,7 @@ def split_input(model_input, total_pixels, n_pixels=10000):
      Split the input to fit Cuda memory for large resolution.
      Can decrease the value of n_pixels in case of cuda out of memory error.
      '''
+
     split = []
     for i, indx in enumerate(torch.split(torch.arange(total_pixels).cuda(), n_pixels, dim=0)):
         data = model_input.copy()
