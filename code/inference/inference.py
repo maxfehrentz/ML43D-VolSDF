@@ -282,6 +282,7 @@ class VolSDFInferenceRunner:
 
     def eval_generalization(self):
         self.model.eval()
+        file_path = 'eval.txt'
 
         self.evaldir = os.path.join('../', 'evaluate_generalization')
         utils.mkdir_ifnotexists(self.evaldir)
@@ -295,37 +296,73 @@ class VolSDFInferenceRunner:
         self.eval_images_dir = os.path.join(self.eval_expdir, self.eval_timestamp, 'eval_images')
         utils.mkdir_ifnotexists(self.eval_images_dir)
 
+        psnrs = []
         for data_index, (indices, model_input, ground_truth) in enumerate(self.eval_val_dataloader):
-            # Initialize the latent
-            self.model.implicit_network.init_latent()
+                print(f"Processing data index {data_index}")
+                model_input["intrinsics"] = model_input["intrinsics"].cuda()
+                model_input["uv"] = model_input["uv"].cuda()
+                model_input['pose'] = model_input['pose'].cuda()
+                model_input['scene_idx'] = model_input['scene_idx'].cuda()
 
-            # Freeze everything but latent
-            self.model.requires_grad = False
-            self.model.implicit_network.z_inference.requires_grad = True
+                # Initialize the latent
+                self.model.implicit_network.init_latent()
+
+                # Freeze everything but latent
+                self.model.requires_grad = False
+                self.model.implicit_network.z_inference.requires_grad = True
 
 
-            for i in range(self.optim_steps_inference):
-                # Only taking subset of model_input for latent optimization due to memory constraints
-                model_outputs = self.model(model_input)
+                for i in range(self.optim_steps_inference):
+                    model_outputs = self.model(model_input)
 
-                loss_output = self.loss(model_outputs, ground_truth)
-                loss = loss_output['loss']
+                    loss_output = self.loss(model_outputs, ground_truth)
+                    loss = loss_output['loss']
 
-                self.optimizer_latent.zero_grad()
-                loss.backward()
+                    self.optimizer_latent.zero_grad()
+                    loss.backward()
 
-                self.optimizer_latent.step()
+                    self.optimizer_latent.step()
 
-                print(f"latent optimization step {i}:"
-                    f"loss = {loss.item()}, "
-                    f"rgb_loss = {loss_output['rgb_loss'].item()}, "
-                    f"eikonal_loss = {loss_output['eikonal_loss'].item()}")
+                    print(f"latent optimization step {i}:"
+                        f"loss = {loss.item()}, "
+                        f"rgb_loss = {loss_output['rgb_loss'].item()}, "
+                        f"eikonal_loss = {loss_output['eikonal_loss'].item()}")
 
-                if i == 0 or i == self.optim_steps_inference / 2 or i == self.optim_steps_inference - 1:
-                    # TODO: make sure this does not mess up with the compute graph or gradients, cannot call with
-                    #  torch.no_grad() as visualizing actually requires the gradients
-                    self.visualize(model_input, ground_truth, i, indices)
-            # TODO: add psnr and other metrics calculation here
+                    if i == 0 or i == self.optim_steps_inference //3 or i == 2 * (self.optim_steps_inference // 3) or i == self.optim_steps_inference - 1:
+                        # TODO: make sure this does not mess up with the compute graph or gradients, cannot call with
+                        #  torch.no_grad() as visualizing actually requires the gradients
+                        print("visualizing")
+                        self.visualize(model_input, ground_truth, i, indices)
+
+                batch_size = ground_truth['rgb'].shape[0]
+                rgb_eval = model_outputs['rgb_values']
+                rgb_eval = rgb_eval.reshape(batch_size, self.total_pixels, 3)
+
+                rgb_eval = plt.lin2img(rgb_eval, self.img_res).detach().cpu().numpy()[0]
+                rgb_eval = rgb_eval.transpose(1, 2, 0)
+
+                img = Image.fromarray((rgb_eval * 255).astype(np.uint8))
+                img.save('{0}/eval_{1}.png'.format(self.eval_images_dir,'%03d' % indices[0]))
+
+                psnr = rend_util.get_psnr(model_outputs['rgb_values'], ground_truth['rgb'].cuda().reshape(-1, 3)).item()
+                print(f"PSNR: {psnr:.2f}")
+                psnrs.append(psnr)
+                with open(file_path, 'a') as file:
+                    formatted_string = f"PSNR for {data_index}: {psnr:.2f}"
+                    file.write(formatted_string + '\n')
+
+                
+                print("visualizing")
+                self.visualize(model_input, ground_truth, data_index, indices)
+
+        psnrs = np.array(psnrs).astype(np.float64)
+        print("RENDERING EVALUATION: psnr mean = {0} ; psnr std = {1}".format("%.2f" % psnrs.mean(), "%.2f" % psnrs.std()))
+        file_path = 'eval.txt'
+        with open(file_path, 'a') as file:
+            formatted_string = "RENDERING EVALUATION val 10: psnr mean = {0} ; psnr std = {1}".format("%.2f" % psnrs.mean(), "%.2f" % psnrs.std())
+            file.write(formatted_string + '\n')
+        psnrs = np.concatenate([psnrs, psnrs.mean()[None], psnrs.std()[None]])
+        pd.DataFrame(psnrs).to_csv('{0}/psnr.csv'.format(self.eval_expdir))
 
 
             
@@ -349,7 +386,7 @@ class VolSDFInferenceRunner:
         # the order of latent codes seems to be defined by the order in which secenes we loaded during training. 
         # need to fix that to allow some mapping to true scene ids. the easiest way is probably to store the list of scan_ids generated during training
 
-        latent2scene_map = {0: 2, 1: 1, 2: 0}
+        latent2scene_map = {0: 0, 1: 1, 2: 2}
 
         psnrs = []
         for data_index, (indices, model_input, ground_truth) in enumerate(self.eval_train_dataloader):
@@ -386,35 +423,21 @@ class VolSDFInferenceRunner:
             psnr = rend_util.get_psnr(model_outputs['rgb_values'], ground_truth['rgb'].cuda().reshape(-1, 3)).item()
             print(f"PSNR: {psnr:.2f}")
             psnrs.append(psnr)
+            
+            if data_index % 24 == 0:
+                print("visualizing")
+                self.visualize(model_input, ground_truth, data_index, indices)
 
         psnrs = np.array(psnrs).astype(np.float64)
         print("RENDERING EVALUATION: psnr mean = {0} ; psnr std = {1}".format("%.2f" % psnrs.mean(), "%.2f" % psnrs.std()))
+        file_path = 'eval.txt'
+        with open(file_path, 'a') as file:
+            formatted_string = "RENDERING EVALUATION: psnr mean = {0} ; psnr std = {1}".format("%.2f" % psnrs.mean(), "%.2f" % psnrs.std())
+            file.write(formatted_string + '\n')
         psnrs = np.concatenate([psnrs, psnrs.mean()[None], psnrs.std()[None]])
         pd.DataFrame(psnrs).to_csv('{0}/psnr.csv'.format(self.eval_expdir))
 
-        ############################################################################################################
-        # bb_dict = np.load('../data/DTU/bbs.npz')
-        # grid_params = bb_dict[str(scan_id)]
 
-        # mesh = plt.get_surface_by_grid(
-        #     grid_params=grid_params,
-        #     sdf=lambda x: model.implicit_network(x)[:, 0],
-        #     resolution=kwargs['resolution'],
-        #     level=conf.get_int('plot.level', default=0),
-        #     higher_res=True
-        # )
-
-        # # Transform to world coordinates
-        # mesh.apply_transform(scale_mat)
-
-        # # Taking the biggest connected component
-        # components = mesh.split(only_watertight=False)
-        # areas = np.array([c.area for c in components], dtype=np.float32)
-        # mesh_clean = components[areas.argmax()]
-
-        # mesh_folder = '{0}/{1}'.format(evaldir, epoch)
-        # utils.mkdir_ifnotexists(mesh_folder)
-        # mesh_clean.export('{0}/scan{1}.ply'.format(mesh_folder, scan_id), 'ply')
 
 
         
@@ -424,7 +447,11 @@ class VolSDFInferenceRunner:
         # ask whether to run iference or evaluation
         to_run = input("Do you want to run inference or evaluation? (i/e): ")
         if to_run == 'e':
-            self.eval_new_model_3_scene()
+            eval_infer_or_generalization = input("Do you want to run evaluation or generalization? (e/g): ")
+            if eval_infer_or_generalization == 'e':
+                self.eval_new_model_3_scene()
+            elif eval_infer_or_generalization == 'g':
+                self.eval_generalization()
             return
         elif to_run == 'i':
 

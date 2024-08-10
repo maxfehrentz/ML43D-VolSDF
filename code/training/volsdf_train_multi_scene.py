@@ -129,7 +129,7 @@ class VolSDFTrainRunner():
 
         self.start_epoch = 0
         if is_continue: # check if latent vectors are loaded as part of pararmeters when continued from checkpoint
-            old_checkpnts_dir = os.path.join(self.expdir, timestamp, 'checkpoints')
+            old_checkpnts_dir = os.path.join(self.expdir, '2024_07_20_15_05_33', 'checkpoints')
 
             saved_model_state = torch.load(
                 os.path.join(old_checkpnts_dir, 'ModelParameters', str(kwargs['checkpoint']) + ".pth"))
