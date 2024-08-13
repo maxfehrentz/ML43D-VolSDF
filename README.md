@@ -10,7 +10,10 @@ It is also important to note that a special .json file is required to start the 
 After that please train the network according to the specific repo.
 
 ## 3. Comparing Results
-AS already mentioned in the report we validate our groundtruth by measuring how much the shape representation degrades after training DeepSDF. Therefore we wrote some custom scripts that visualize this degradation by computing the Chamfer Distance and Earth Movers Distance.
+As already mentioned in the report we validate our groundtruth by measuring how much the shape representation degrades after training DeepSDF. Therefore we wrote some custom scripts that visualize this degradation by computing the Chamfer Distance and Earth Movers Distance. To compute the point clouds on which the validation is done, run the `Convert_sampled_points_to_point_cloud.py` script.
+For actual validation run `custom_evaluation.py` or `custom_evaluation_volsdf.py` respectively.
+To visualize the output mesh run `custom_reconstruct.py`.
+All files can be found in the DeepSDF folder!
 **Note** here that we created our own custom marching cubes script that uses the stored latent codes from training.
 
 
