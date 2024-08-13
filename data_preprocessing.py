@@ -10,17 +10,10 @@ def preprocess_cameras(src_folder, dst_folder, num_scans, img_width, img_height)
     if not os.path.exists(dst_folder):
         os.makedirs(dst_folder)
 
-    custom_projection = np.array([
-                                [img_width/2,            0, 0,  img_width/2],
-                                [0,           img_height/2, 0, img_height/2],
-                                [0,                      0, 1,            0],
-                                [0,                      0, 0,            1]
-                            ])
-
     # Get the list of object categories
     obj_categories = [obj for obj in os.listdir(src_folder) if os.path.isdir(os.path.join(src_folder, obj))]
 
-    print(obj_categories)
+    index_counter = 0
 
     # Initialize the progress bar for object categories
     with tqdm(total=len(obj_categories), desc='Object Categories', position=0, leave=True) as pbar_obj:
@@ -51,6 +44,7 @@ def preprocess_cameras(src_folder, dst_folder, num_scans, img_width, img_height)
 
                     # Create a dictionary to store the new camera data
                     new_camera_data = {}
+                    new_scale_data = {}
                     
                     for idx in indices:
                         world_mat_key = f'world_mat_{idx}'
@@ -64,11 +58,18 @@ def preprocess_cameras(src_folder, dst_folder, num_scans, img_width, img_height)
                         world_mat = camera_data[world_mat_key]
                         camera_mat = camera_data[camera_mat_key]
                         scale_mat = camera_data[scale_mat_key] if scale_mat_key else np.identity(4)
+                        
+                        camera_mat[0][0] *= img_width/2
+                        camera_mat[1][1] *= img_height/2
+                        camera_mat[0][2] += img_width/2
+                        camera_mat[1][2] += img_height/2
+                        #camera_mat[2][2] *= -1
                     
-                        new_camera_data[f'world_mat_{idx}'] = custom_projection @ camera_mat @ world_mat @ scale_mat
+                        new_camera_data[f'world_mat_{idx}'] = camera_mat @ world_mat
+                        new_scale_data[f'scale_mat_{idx}'] = scale_mat
                     
                     # Create the new instance directory
-                    new_instance_path = os.path.join(dst_folder, obj_category, f'scan{instance_index}')
+                    new_instance_path = os.path.join(dst_folder, f'scan{index_counter}')
                     os.makedirs(new_instance_path, exist_ok=True)
 
                     # Copy image files to the new directory
@@ -77,8 +78,10 @@ def preprocess_cameras(src_folder, dst_folder, num_scans, img_width, img_height)
                     shutil.copytree(src_images_path, dst_images_path)
 
                     # Save the new cameras.npz file
-                    np.savez(os.path.join(new_instance_path, 'cameras.npz'), **new_camera_data)
+                    np.savez(os.path.join(new_instance_path, 'cameras.npz'), **new_camera_data, **new_scale_data)
 
+                    index_counter = index_counter + 1
+                    
                     # Update the instance progress bar
                     pbar_inst.update(1)
             
@@ -100,10 +103,6 @@ def normalize_cameras(root_dir):
                     "--input_cameras_file", input_file,
                     "--output_cameras_file", output_file
                 ], capture_output=True, text=True)
-                
-                print(f"Normalized {input_file} and saved to {output_file}")
-                print(f"Subprocess output: {result.stdout}")
-                print(f"Subprocess errors: {result.stderr}")
                 
                 
 if __name__=="__main__": 
