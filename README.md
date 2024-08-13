@@ -1,3 +1,19 @@
+# How to run VolSDF and DeepSDF chained
+
+## 1. Training VolSDF
+To train VolSDF with the nmr dataset please use the provided jupyter notebook in here functions are set up to download and pre-process the data according to VolSDFs standards.
+To actually train VolSDF please call the shape specific training function with our own custom config. (More details can be found below)
+
+## 2. Training DeepSDF
+As DeepSDF is a little older and requires a more complex set up please visit the respective [github page](https://github.com/facebookresearch/DeepSDF). **Note** that some changes to source code are required to actually run DeepSDF. Please install all dependencies, except nanoflann. For nanoflann you need to first copy the nanoflann header file to the DeepSDF project and then add it to its CMake file. Afterwards search for all header files that use nanoflann and directly reference it. 
+It is also important to note that a special .json file is required to start the training. An exemplary file should be provided in this repo though you most likely need to adapt it.
+After that please train the network according to the specific repo.
+
+## 3. Comparing Results
+AS already mentioned in the report we validate our groundtruth by measuring how much the shape representation degrades after training DeepSDF. Therefore we wrote some custom scripts that visualize this degradation by computing the Chamfer Distance and Earth Movers Distance.
+**Note** here that we created our own custom marching cubes script that uses the stored latent codes from training.
+
+
 # Volume Rendering of Neural Implicit Surfaces
 
 ### [Project Page](https://lioryariv.github.io/volsdf/) | [Paper](https://arxiv.org/abs/2106.12052) | [Data](https://www.dropbox.com/sh/oum8dyo19jqdkwu/AAAxpIifYjjotz_fIRBj1Fyla)
